@@ -77,7 +77,7 @@ async fn main() {
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
     let config = config::load_config()?;
-    let client = Client::new(&config.server_url, &config.admin_token);
+    let client = Client::new(&config.server_url, &config.token);
 
     match cli.command {
         Commands::Get { path } => {
