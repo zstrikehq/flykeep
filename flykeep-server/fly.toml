@@ -1,7 +1,8 @@
 app = "flykeep"
-primary_region = "ord"
+primary_region = "iad"
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
   FLYKEEP_DB_PATH = "/data/vault.db"
@@ -14,6 +15,6 @@ primary_region = "ord"
   auto_start_machines = true
   min_machines_running = 0
 
-[mounts]
+[[mounts]]
   source = "flykeep_data"
   destination = "/data"
