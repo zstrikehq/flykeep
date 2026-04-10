@@ -41,7 +41,8 @@ pub fn check_auth(
 pub fn is_fly_private_network(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V6(v6) => {
-            // fdaa::/8 — first 8 bits are 0xFD
+            // Fly.io private network (fdaa::/16) is a subset of the ULA fd00::/8 range.
+            // Check: first byte == 0xFD covers all Fly private addresses.
             (v6.segments()[0] >> 8) == 0xFD
         }
         _ => false,
@@ -81,10 +82,12 @@ impl AuthMiddleware {
             Err(AuthError::Unauthorized) => {
                 res.status_code(StatusCode::UNAUTHORIZED);
                 res.render(salvo::writing::Json(serde_json::json!({"error": "unauthorized"})));
+                ctrl.skip_rest();
             }
             Err(AuthError::Forbidden) => {
                 res.status_code(StatusCode::FORBIDDEN);
                 res.render(salvo::writing::Json(serde_json::json!({"error": "forbidden"})));
+                ctrl.skip_rest();
             }
         }
     }
