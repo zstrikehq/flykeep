@@ -2,11 +2,11 @@ mod client;
 mod config;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use client::{Client, ListEntry, ListResponse, SecretResponse};
+use client::{Client, ListResponse, SecretResponse};
 use std::io::{self, Write};
 
 #[derive(Parser)]
-#[command(name = "flykeep", about = "CLI client for flykeep secret store")]
+#[command(name = "flykeep", about = "CLI client for flykeep secret store", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -18,6 +18,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Show CLI and server version
+    Version,
     /// Configure server URL and token
     Auth,
     /// Fetch and print a single secret
@@ -133,11 +135,25 @@ async fn run() -> Result<(), String> {
         return run_auth().await;
     }
 
+    if matches!(cli.command, Commands::Version) {
+        println!("client: {}", env!("CARGO_PKG_VERSION"));
+        if let Ok(config) = config::load_config() {
+            let client = Client::new(&config.server_url, &config.token);
+            match client.server_version().await {
+                Ok(v) => println!("server: {v}"),
+                Err(e) => println!("server: unavailable ({e})"),
+            }
+        } else {
+            println!("server: not configured");
+        }
+        return Ok(());
+    }
+
     let config = config::load_config()?;
     let client = Client::new(&config.server_url, &config.token);
 
     match cli.command {
-        Commands::Auth => unreachable!(),
+        Commands::Auth | Commands::Version => unreachable!(),
         Commands::Get { path } => {
             let resp = client.get_secret(&path).await?;
             match cli.format {
@@ -232,6 +248,7 @@ async fn run_auth() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use client::ListEntry;
 
     #[test]
     fn test_format_get_table() {

@@ -61,7 +61,10 @@ pub fn validate_prefix(prefix: &str) -> Result<String, String> {
 
 #[handler]
 async fn alive(res: &mut Response) {
-    res.render(salvo::writing::Json(json!({"ok": true})));
+    res.render(salvo::writing::Json(json!({
+        "ok": true,
+        "version": env!("CARGO_PKG_VERSION"),
+    })));
 }
 
 #[handler]

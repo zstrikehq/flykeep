@@ -41,6 +41,21 @@ impl Client {
         }
     }
 
+    pub async fn server_version(&self) -> Result<String, String> {
+        let res = self
+            .http
+            .get(format!("{}/alive", self.base_url))
+            .send()
+            .await
+            .map_err(|e| format!("could not reach server: {e}"))?;
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|e| format!("failed to parse response: {e}"))?;
+        let version = body["version"].as_str().unwrap_or("unknown");
+        Ok(version.to_string())
+    }
+
     pub async fn verify_auth(&self) -> Result<String, String> {
         let res = self
             .http
