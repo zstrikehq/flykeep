@@ -258,6 +258,7 @@ mod tests {
             db: Arc::new(db),
             encryption_key: test_key(),
             admin_token: test_token(),
+            read_token: "test-read-token".to_string(),
         });
         let router = create_router(state);
         (Service::new(router), dir)
@@ -420,5 +421,44 @@ mod tests {
     #[test]
     fn test_prefix_just_slash() {
         assert!(validate_prefix("/").is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_read_token_can_get() {
+        let (service, _dir) = setup_service();
+        TestClient::put("http://127.0.0.1:5800/secrets")
+            .add_header("authorization", auth_header(), true)
+            .json(&serde_json::json!({"path": "/ns/dev/app/KEY", "value": "secret"}))
+            .send(&service)
+            .await;
+
+        let mut res = TestClient::get("http://127.0.0.1:5800/secrets?path=/ns/dev/app/KEY")
+            .add_header("authorization", "Bearer test-read-token", true)
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.expect("test: status"), StatusCode::OK);
+        let body: serde_json::Value = res.take_json().await.expect("test: parse json");
+        assert_eq!(body["value"], "secret");
+    }
+
+    #[tokio::test]
+    async fn test_read_token_cannot_put() {
+        let (service, _dir) = setup_service();
+        let res = TestClient::put("http://127.0.0.1:5800/secrets")
+            .add_header("authorization", "Bearer test-read-token", true)
+            .json(&serde_json::json!({"path": "/ns/dev/app/KEY", "value": "val"}))
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.expect("test: status"), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_read_token_cannot_delete() {
+        let (service, _dir) = setup_service();
+        let res = TestClient::delete("http://127.0.0.1:5800/secrets?path=/ns/dev/app/KEY")
+            .add_header("authorization", "Bearer test-read-token", true)
+            .send(&service)
+            .await;
+        assert_eq!(res.status_code.expect("test: status"), StatusCode::FORBIDDEN);
     }
 }
