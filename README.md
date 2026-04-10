@@ -20,7 +20,10 @@ Deploy with Docker or directly to [Fly.io](https://fly.io):
 cd flykeep-server
 # Change `app` in fly.toml to a unique name
 fly deploy
-fly secrets set FLYKEEP_ENCRYPTION_KEY=<64 hex chars> FLYKEEP_ADMIN_TOKEN=<token> FLYKEEP_READ_TOKEN=<token>
+fly secrets set \
+  FLYKEEP_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+  FLYKEEP_ADMIN_TOKEN=$(openssl rand -hex 24) \
+  FLYKEEP_READ_TOKEN=$(openssl rand -hex 24)
 ```
 
 ## CLI
@@ -34,11 +37,22 @@ cargo build --release
 
 ### Setup
 
+Option 1 — interactive:
+
 ```
 flykeep auth
 ```
 
 Prompts for server URL and token, validates credentials, and saves to `~/.config/flykeep/config.toml`.
+
+Option 2 — environment variables:
+
+```
+export FLYKEEP_SERVER_URL=https://your-server.fly.dev
+export FLYKEEP_TOKEN=your-token
+```
+
+Env vars take precedence over the config file.
 
 ### Usage
 
@@ -54,9 +68,33 @@ flykeep delete /apps/myapp/db_url
 
 ```
 flykeep list /apps/ --format table   # default, includes timestamps
-flykeep list /apps/ --format env     # KEY=value pairs
-flykeep list /apps/ --format json
+flykeep list /apps/ --format env     # KEY=VALUE pairs (auto-fetches values)
+flykeep list /apps/ --format json    # JSON array (auto-fetches values)
 ```
+
+## Docker Entrypoint
+
+Use flykeep to inject secrets as environment variables at container startup.
+
+**docker-entrypoint.sh:**
+
+```bash
+#!/bin/sh
+set -e
+export $(flykeep list /apps/myapp/prod/ --format env)
+exec "$@"
+```
+
+**Dockerfile:**
+
+```dockerfile
+COPY --from=flykeep /flykeep /usr/local/bin/flykeep
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["node", "server.js"]
+```
+
+Set `FLYKEEP_SERVER_URL` and `FLYKEEP_TOKEN` as environment variables in your container runtime.
 
 ## API
 
