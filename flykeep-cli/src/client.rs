@@ -37,7 +37,7 @@ impl Client {
             .http
             .get(format!("{}/secrets", self.base_url))
             .query(&[("path", path)])
-            .header("authorization", format!("Bearer {}", self.token))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
             .send()
             .await
             .map_err(|e| format!("request failed: {e}"))?;
@@ -57,7 +57,7 @@ impl Client {
         let res = self
             .http
             .put(format!("{}/secrets", self.base_url))
-            .header("authorization", format!("Bearer {}", self.token))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
             .json(&json!({"path": path, "value": value}))
             .send()
             .await
@@ -77,7 +77,7 @@ impl Client {
             .http
             .get(format!("{}/secrets", self.base_url))
             .query(&[("prefix", prefix)])
-            .header("authorization", format!("Bearer {}", self.token))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
             .send()
             .await
             .map_err(|e| format!("request failed: {e}"))?;
@@ -98,7 +98,7 @@ impl Client {
             .http
             .delete(format!("{}/secrets", self.base_url))
             .query(&[("path", path)])
-            .header("authorization", format!("Bearer {}", self.token))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
             .send()
             .await
             .map_err(|e| format!("request failed: {e}"))?;
