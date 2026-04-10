@@ -8,13 +8,21 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
-    let auth = AuthMiddleware { state };
-    Router::new().hoop(auth).push(
-        Router::with_path("secrets")
-            .get(get_secrets)
-            .put(put_secret)
-            .delete(delete_secret),
-    )
+    let auth = AuthMiddleware {
+        state: state.clone(),
+    };
+    Router::new()
+        .push(Router::with_path("alive").get(alive))
+        .push(
+            Router::new().hoop(auth).push(
+                Router::with_path("auth/verify").get(verify_auth),
+            ).push(
+                Router::with_path("secrets")
+                    .get(get_secrets)
+                    .put(put_secret)
+                    .delete(delete_secret),
+            ),
+        )
 }
 
 pub(crate) fn json_error(res: &mut Response, status: StatusCode, message: &str) {
@@ -22,8 +30,8 @@ pub(crate) fn json_error(res: &mut Response, status: StatusCode, message: &str) 
     res.render(salvo::writing::Json(json!({"error": message})));
 }
 
-/// Validates a secret path.
-pub fn validate_path(path: &str) -> Result<(), String> {
+/// Validates and lowercases a secret path.
+pub fn validate_path(path: &str) -> Result<String, String> {
     if !path.starts_with('/') {
         return Err("path must start with /".to_string());
     }
@@ -37,18 +45,39 @@ pub fn validate_path(path: &str) -> Result<(), String> {
     if segments.iter().any(|s| s.is_empty()) {
         return Err("path must not contain empty segments".to_string());
     }
-    Ok(())
+    Ok(path.to_lowercase())
 }
 
-/// Validates a prefix for list queries.
-pub fn validate_prefix(prefix: &str) -> Result<(), String> {
+/// Validates and lowercases a prefix for list queries.
+pub fn validate_prefix(prefix: &str) -> Result<String, String> {
     if !prefix.starts_with('/') {
         return Err("prefix must start with /".to_string());
     }
     if !prefix.ends_with('/') {
         return Err("prefix must end with /".to_string());
     }
-    Ok(())
+    Ok(prefix.to_lowercase())
+}
+
+#[handler]
+async fn alive(res: &mut Response) {
+    res.render(salvo::writing::Json(json!({"ok": true})));
+}
+
+#[handler]
+async fn verify_auth(depot: &mut Depot, res: &mut Response) {
+    let auth_level = match depot.obtain::<AuthLevel>() {
+        Ok(level) => level.clone(),
+        Err(_) => {
+            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            return;
+        }
+    };
+    let role = match auth_level {
+        AuthLevel::Admin => "admin",
+        AuthLevel::ReadOnly => "read-only",
+    };
+    res.render(salvo::writing::Json(json!({"ok": true, "role": role})));
 }
 
 #[handler]
@@ -71,18 +100,26 @@ async fn get_secrets(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 }
 
 async fn get_single_secret(state: &Arc<AppState>, path: &str, res: &mut Response) {
-    if let Err(e) = validate_path(path) {
-        json_error(res, StatusCode::BAD_REQUEST, &e);
-        return;
-    }
+    let path = match validate_path(path) {
+        Ok(p) => p,
+        Err(e) => {
+            json_error(res, StatusCode::BAD_REQUEST, &e);
+            return;
+        }
+    };
     let db = state.db.clone();
     let key = state.encryption_key;
-    let path_owned = path.to_string();
-    let result = tokio::task::spawn_blocking(move || db.get_secret(&path_owned)).await;
+    let path_clone = path.clone();
+    let result = tokio::task::spawn_blocking(move || db.get_secret(&path_clone)).await;
     match result {
         Ok(Ok(Some(row))) => match crypto::decrypt(&key, &row.value, &row.nonce) {
             Ok(plaintext) => {
-                res.render(salvo::writing::Json(json!({"path": path, "value": plaintext})));
+                res.render(salvo::writing::Json(json!({
+                    "path": path,
+                    "value": plaintext,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                })));
             }
             Err(e) => {
                 json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("decryption error: {e}"));
@@ -101,16 +138,27 @@ async fn get_single_secret(state: &Arc<AppState>, path: &str, res: &mut Response
 }
 
 async fn list_secrets_handler(state: &Arc<AppState>, prefix: &str, res: &mut Response) {
-    if let Err(e) = validate_prefix(prefix) {
-        json_error(res, StatusCode::BAD_REQUEST, &e);
-        return;
-    }
+    let prefix = match validate_prefix(prefix) {
+        Ok(p) => p,
+        Err(e) => {
+            json_error(res, StatusCode::BAD_REQUEST, &e);
+            return;
+        }
+    };
     let db = state.db.clone();
-    let prefix_owned = prefix.to_string();
+    let prefix_owned = prefix.clone();
     let result = tokio::task::spawn_blocking(move || db.list_secrets(&prefix_owned)).await;
     match result {
-        Ok(Ok(paths)) => {
-            res.render(salvo::writing::Json(json!({"paths": paths})));
+        Ok(Ok(items)) => {
+            let entries: Vec<serde_json::Value> = items
+                .iter()
+                .map(|i| json!({
+                    "path": i.path,
+                    "created_at": i.created_at,
+                    "updated_at": i.updated_at,
+                }))
+                .collect();
+            res.render(salvo::writing::Json(json!({"secrets": entries})));
         }
         Ok(Err(e)) => {
             json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &e);
@@ -154,10 +202,13 @@ async fn put_secret(req: &mut Request, depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    if let Err(e) = validate_path(&body.path) {
-        json_error(res, StatusCode::BAD_REQUEST, &e);
-        return;
-    }
+    let path = match validate_path(&body.path) {
+        Ok(p) => p,
+        Err(e) => {
+            json_error(res, StatusCode::BAD_REQUEST, &e);
+            return;
+        }
+    };
     let key = state.encryption_key;
     let (ciphertext, nonce) = match crypto::encrypt(&key, &body.value) {
         Ok(result) => result,
@@ -167,7 +218,6 @@ async fn put_secret(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         }
     };
     let db = state.db.clone();
-    let path = body.path.clone();
     let result = tokio::task::spawn_blocking(move || db.put_secret(&path, &ciphertext, &nonce)).await;
     match result {
         Ok(Ok(())) => {
@@ -209,10 +259,13 @@ async fn delete_secret(req: &mut Request, depot: &mut Depot, res: &mut Response)
             return;
         }
     };
-    if let Err(e) = validate_path(&path) {
-        json_error(res, StatusCode::BAD_REQUEST, &e);
-        return;
-    }
+    let path = match validate_path(&path) {
+        Ok(p) => p,
+        Err(e) => {
+            json_error(res, StatusCode::BAD_REQUEST, &e);
+            return;
+        }
+    };
     let db = state.db.clone();
     let path_clone = path.clone();
     let result = tokio::task::spawn_blocking(move || db.delete_secret(&path_clone)).await;
@@ -284,7 +337,7 @@ mod tests {
             .await;
         assert_eq!(res.status_code.expect("test: status"), StatusCode::OK);
         let body: Value = res.take_json().await.expect("test: parse json");
-        assert_eq!(body["path"], "/ns/dev/app/DB_URL");
+        assert_eq!(body["path"], "/ns/dev/app/db_url");
         assert_eq!(body["value"], "postgres://localhost");
     }
 
@@ -317,8 +370,10 @@ mod tests {
             .await;
         assert_eq!(res.status_code.expect("test: status"), StatusCode::OK);
         let body: Value = res.take_json().await.expect("test: parse json");
-        let paths = body["paths"].as_array().expect("test: paths array");
-        assert_eq!(paths.len(), 2);
+        let secrets = body["secrets"].as_array().expect("test: secrets array");
+        assert_eq!(secrets.len(), 2);
+        assert!(secrets[0]["created_at"].is_i64());
+        assert!(secrets[0]["updated_at"].is_i64());
     }
 
     #[tokio::test]
@@ -401,6 +456,16 @@ mod tests {
     #[test]
     fn test_path_just_slash() {
         assert!(validate_path("/").is_err());
+    }
+
+    #[test]
+    fn test_path_lowercased() {
+        assert_eq!(validate_path("/NS/Dev/APP/KEY").unwrap(), "/ns/dev/app/key");
+    }
+
+    #[test]
+    fn test_prefix_lowercased() {
+        assert_eq!(validate_prefix("/NS/Dev/").unwrap(), "/ns/dev/");
     }
 
     #[test]

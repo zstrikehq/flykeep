@@ -1,1 +1,19 @@
+# Build
+target/
+
+# Environment
+.env
+
+# Database
+*.db
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Worktrees
 .worktrees/
+prd.md

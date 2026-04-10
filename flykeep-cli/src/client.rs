@@ -11,11 +11,20 @@ pub struct Client {
 pub struct SecretResponse {
     pub path: String,
     pub value: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Deserialize)]
+pub struct ListEntry {
+    pub path: String,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Deserialize)]
 pub struct ListResponse {
-    pub paths: Vec<String>,
+    pub secrets: Vec<ListEntry>,
 }
 
 #[derive(Deserialize)]
@@ -30,6 +39,29 @@ impl Client {
             token: token.to_string(),
             http: reqwest::Client::new(),
         }
+    }
+
+    pub async fn verify_auth(&self) -> Result<String, String> {
+        let res = self
+            .http
+            .get(format!("{}/auth/verify", self.base_url))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
+            .send()
+            .await
+            .map_err(|e| format!("could not reach server: {e}"))?;
+        if !res.status().is_success() {
+            let err: ErrorResponse = res
+                .json()
+                .await
+                .map_err(|e| format!("failed to read error response: {e}"))?;
+            return Err(err.error);
+        }
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|e| format!("failed to parse response: {e}"))?;
+        let role = body["role"].as_str().unwrap_or("unknown");
+        Ok(role.to_string())
     }
 
     pub async fn get_secret(&self, path: &str) -> Result<SecretResponse, String> {
@@ -129,7 +161,7 @@ mod tests {
             .and(header("authorization", "Bearer test-token"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(json!({"path": "/ns/dev/app/KEY", "value": "secret-val"})),
+                    .set_body_json(json!({"path": "/ns/dev/app/KEY", "value": "secret-val", "created_at": 1700000000, "updated_at": 1700000000})),
             )
             .mount(&mock_server)
             .await;
@@ -175,13 +207,16 @@ mod tests {
             .and(query_param("prefix", "/ns/dev/"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(json!({"paths": ["/ns/dev/app/A", "/ns/dev/app/B"]})),
+                    .set_body_json(json!({"secrets": [
+                        {"path": "/ns/dev/app/A", "created_at": 1700000000, "updated_at": 1700000000},
+                        {"path": "/ns/dev/app/B", "created_at": 1700000000, "updated_at": 1700000000}
+                    ]})),
             )
             .mount(&mock_server)
             .await;
         let client = Client::new(&mock_server.uri(), "test-token");
         let res = client.list_secrets("/ns/dev/").await.expect("test: list");
-        assert_eq!(res.paths.len(), 2);
+        assert_eq!(res.secrets.len(), 2);
     }
 
     #[tokio::test]

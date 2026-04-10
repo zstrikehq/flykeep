@@ -9,9 +9,17 @@ fn now_epoch() -> Result<i64, String> {
         .map_err(|e| format!("system time error: {e}"))
 }
 
+pub struct SecretListItem {
+    pub path: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 pub struct SecretRow {
     pub value: Vec<u8>,
     pub nonce: Vec<u8>,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 pub struct Database {
@@ -40,13 +48,15 @@ impl Database {
     pub fn get_secret(&self, path: &str) -> Result<Option<SecretRow>, String> {
         let conn = self.conn.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
         let mut stmt = conn
-            .prepare("SELECT value, nonce FROM secrets WHERE path = ?1")
+            .prepare("SELECT value, nonce, created_at, updated_at FROM secrets WHERE path = ?1")
             .map_err(|e| format!("prepare failed: {e}"))?;
         let mut rows = stmt
             .query_map([path], |row| {
                 Ok(SecretRow {
                     value: row.get(0)?,
                     nonce: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
                 })
             })
             .map_err(|e| format!("query failed: {e}"))?;
@@ -77,20 +87,26 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_secrets(&self, prefix: &str) -> Result<Vec<String>, String> {
+    pub fn list_secrets(&self, prefix: &str) -> Result<Vec<SecretListItem>, String> {
         let conn = self.conn.lock().map_err(|e| format!("db lock poisoned: {e}"))?;
         let pattern = format!("{prefix}%");
         let mut stmt = conn
-            .prepare("SELECT path FROM secrets WHERE path LIKE ?1")
+            .prepare("SELECT path, created_at, updated_at FROM secrets WHERE path LIKE ?1")
             .map_err(|e| format!("prepare failed: {e}"))?;
         let rows = stmt
-            .query_map([&pattern], |row| row.get::<_, String>(0))
+            .query_map([&pattern], |row| {
+                Ok(SecretListItem {
+                    path: row.get(0)?,
+                    created_at: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })
             .map_err(|e| format!("query failed: {e}"))?;
-        let mut paths = Vec::new();
+        let mut items = Vec::new();
         for row in rows {
-            paths.push(row.map_err(|e| format!("row read failed: {e}"))?);
+            items.push(row.map_err(|e| format!("row read failed: {e}"))?);
         }
-        Ok(paths)
+        Ok(items)
     }
 
     pub fn delete_secret(&self, path: &str) -> Result<bool, String> {
@@ -190,17 +206,18 @@ mod tests {
         db.put_secret("/ns/dev/app/B", b"v", b"nonce_b_12by").expect("test: put B");
         db.put_secret("/ns/prod/app/C", b"v", b"nonce_c_12by").expect("test: put C");
 
-        let paths = db.list_secrets("/ns/dev/").expect("test: list");
-        assert_eq!(paths.len(), 2);
-        assert!(paths.contains(&"/ns/dev/app/A".to_string()));
-        assert!(paths.contains(&"/ns/dev/app/B".to_string()));
+        let items = db.list_secrets("/ns/dev/").expect("test: list");
+        assert_eq!(items.len(), 2);
+        let paths: Vec<&str> = items.iter().map(|i| i.path.as_str()).collect();
+        assert!(paths.contains(&"/ns/dev/app/A"));
+        assert!(paths.contains(&"/ns/dev/app/B"));
     }
 
     #[test]
     fn test_list_secrets_no_matches() {
         let (db, _dir) = temp_db();
-        let paths = db.list_secrets("/nothing/").expect("test: list");
-        assert!(paths.is_empty());
+        let items = db.list_secrets("/nothing/").expect("test: list");
+        assert!(items.is_empty());
     }
 
     #[test]
