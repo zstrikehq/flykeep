@@ -57,19 +57,19 @@ Env vars take precedence over the config file.
 ### Usage
 
 ```
-flykeep set /apps/myapp/db_url postgres://localhost
-flykeep get /apps/myapp/db_url
-flykeep list /apps/myapp/
-flykeep list /apps/myapp/ --values
-flykeep delete /apps/myapp/db_url
+flykeep set /acme/myapp/prod/DB_URL postgres://localhost
+flykeep get /acme/myapp/prod/DB_URL
+flykeep list /acme/myapp/prod/
+flykeep list /acme/myapp/prod/ --values
+flykeep delete /acme/myapp/prod/DB_URL
 ```
 
 ### Output formats
 
 ```
-flykeep list /apps/ --format table   # default, includes timestamps
-flykeep list /apps/ --format env     # KEY=VALUE pairs (auto-fetches values)
-flykeep list /apps/ --format json    # JSON array (auto-fetches values)
+flykeep list /acme/myapp/ --format table   # default, includes timestamps
+flykeep list /acme/myapp/ --format env     # KEY=VALUE pairs (auto-fetches values)
+flykeep list /acme/myapp/ --format json    # JSON array (auto-fetches values)
 ```
 
 ## Docker Entrypoint
@@ -81,7 +81,7 @@ Use flykeep to inject secrets as environment variables at container startup.
 ```bash
 #!/bin/sh
 set -e
-export $(flykeep list /apps/myapp/prod/ --format env)
+export $(flykeep list /acme/myapp/prod/ --format env)
 exec "$@"
 ```
 
