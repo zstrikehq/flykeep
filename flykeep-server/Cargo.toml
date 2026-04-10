@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-salvo = { version = "0.77" }
+salvo = { version = "0.77", features = ["test"] }
 tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 aes-gcm = "0.10"

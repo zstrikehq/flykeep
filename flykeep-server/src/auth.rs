@@ -48,6 +48,48 @@ pub fn is_fly_private_network(ip: &IpAddr) -> bool {
     }
 }
 
+use salvo::prelude::*;
+use salvo::http::StatusCode;
+
+pub struct AuthMiddleware {
+    pub state: std::sync::Arc<crate::AppState>,
+}
+
+#[handler]
+impl AuthMiddleware {
+    async fn handle(
+        &self,
+        req: &mut Request,
+        depot: &mut Depot,
+        res: &mut Response,
+        ctrl: &mut FlowCtrl,
+    ) {
+        let auth_header = req
+            .headers()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok());
+
+        // Extract remote IP from the connection
+        let remote_ip = req.remote_addr().clone().into_std().map(|addr| addr.ip());
+
+        match check_auth(auth_header, remote_ip.as_ref(), &self.state.admin_token) {
+            Ok(level) => {
+                depot.inject(level);
+                depot.inject(self.state.clone());
+                ctrl.call_next(req, depot, res).await;
+            }
+            Err(AuthError::Unauthorized) => {
+                res.status_code(StatusCode::UNAUTHORIZED);
+                res.render(salvo::writing::Json(serde_json::json!({"error": "unauthorized"})));
+            }
+            Err(AuthError::Forbidden) => {
+                res.status_code(StatusCode::FORBIDDEN);
+                res.render(salvo::writing::Json(serde_json::json!({"error": "forbidden"})));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
