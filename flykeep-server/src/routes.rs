@@ -14,14 +14,15 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .push(Router::with_path("alive").get(alive))
         .push(
-            Router::new().hoop(auth).push(
-                Router::with_path("auth/verify").get(verify_auth),
-            ).push(
-                Router::with_path("secrets")
-                    .get(get_secrets)
-                    .put(put_secret)
-                    .delete(delete_secret),
-            ),
+            Router::new()
+                .hoop(auth)
+                .push(Router::with_path("auth/verify").get(verify_auth))
+                .push(
+                    Router::with_path("secrets")
+                        .get(get_secrets)
+                        .put(put_secret)
+                        .delete(delete_secret),
+                ),
         )
 }
 
@@ -39,8 +40,8 @@ pub fn validate_path(path: &str) -> Result<String, String> {
         return Err("path must not end with /".to_string());
     }
     let segments: Vec<&str> = path[1..].split('/').collect();
-    if segments.len() < 2 {
-        return Err("path must have at least 2 segments".to_string());
+    if segments.len() != 4 {
+        return Err("path must have exactly 4 segments: /workspace/project/env/key. eg. /acme/billing-app/dev/payment_secret_key".to_string());
     }
     if segments.iter().any(|s| s.is_empty()) {
         return Err("path must not contain empty segments".to_string());
@@ -72,7 +73,11 @@ async fn verify_auth(depot: &mut Depot, res: &mut Response) {
     let auth_level = match depot.obtain::<AuthLevel>() {
         Ok(level) => level.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
@@ -88,7 +93,11 @@ async fn get_secrets(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<Arc<AppState>>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
@@ -98,7 +107,11 @@ async fn get_secrets(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     } else if let Some(prefix) = req.query::<String>("prefix") {
         list_secrets_handler(&state, &prefix, res).await;
     } else {
-        json_error(res, StatusCode::BAD_REQUEST, "missing path or prefix parameter");
+        json_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "missing path or prefix parameter",
+        );
     }
 }
 
@@ -125,7 +138,11 @@ async fn get_single_secret(state: &Arc<AppState>, path: &str, res: &mut Response
                 })));
             }
             Err(e) => {
-                json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("decryption error: {e}"));
+                json_error(
+                    res,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("decryption error: {e}"),
+                );
             }
         },
         Ok(Ok(None)) => {
@@ -135,7 +152,11 @@ async fn get_single_secret(state: &Arc<AppState>, path: &str, res: &mut Response
             json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &e);
         }
         Err(e) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("task error: {e}"));
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("task error: {e}"),
+            );
         }
     }
 }
@@ -155,11 +176,13 @@ async fn list_secrets_handler(state: &Arc<AppState>, prefix: &str, res: &mut Res
         Ok(Ok(items)) => {
             let entries: Vec<serde_json::Value> = items
                 .iter()
-                .map(|i| json!({
-                    "path": i.path,
-                    "created_at": i.created_at,
-                    "updated_at": i.updated_at,
-                }))
+                .map(|i| {
+                    json!({
+                        "path": i.path,
+                        "created_at": i.created_at,
+                        "updated_at": i.updated_at,
+                    })
+                })
                 .collect();
             res.render(salvo::writing::Json(json!({"secrets": entries})));
         }
@@ -167,7 +190,11 @@ async fn list_secrets_handler(state: &Arc<AppState>, prefix: &str, res: &mut Res
             json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &e);
         }
         Err(e) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("task error: {e}"));
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("task error: {e}"),
+            );
         }
     }
 }
@@ -183,18 +210,30 @@ async fn put_secret(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let auth_level = match depot.obtain::<AuthLevel>() {
         Ok(level) => level.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
     if auth_level != AuthLevel::Admin {
-        json_error(res, StatusCode::FORBIDDEN, "write operations require admin token");
+        json_error(
+            res,
+            StatusCode::FORBIDDEN,
+            "write operations require admin token",
+        );
         return;
     }
     let state = match depot.obtain::<Arc<AppState>>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
@@ -216,12 +255,17 @@ async fn put_secret(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let (ciphertext, nonce) = match crypto::encrypt(&key, &body.value) {
         Ok(result) => result,
         Err(e) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("encryption error: {e}"));
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("encryption error: {e}"),
+            );
             return;
         }
     };
     let db = state.db.clone();
-    let result = tokio::task::spawn_blocking(move || db.put_secret(&path, &ciphertext, &nonce)).await;
+    let result =
+        tokio::task::spawn_blocking(move || db.put_secret(&path, &ciphertext, &nonce)).await;
     match result {
         Ok(Ok(())) => {
             res.render(salvo::writing::Json(json!({"ok": true})));
@@ -230,7 +274,11 @@ async fn put_secret(req: &mut Request, depot: &mut Depot, res: &mut Response) {
             json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &e);
         }
         Err(e) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("task error: {e}"));
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("task error: {e}"),
+            );
         }
     }
 }
@@ -240,18 +288,30 @@ async fn delete_secret(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let auth_level = match depot.obtain::<AuthLevel>() {
         Ok(level) => level.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
     if auth_level != AuthLevel::Admin {
-        json_error(res, StatusCode::FORBIDDEN, "write operations require admin token");
+        json_error(
+            res,
+            StatusCode::FORBIDDEN,
+            "write operations require admin token",
+        );
         return;
     }
     let state = match depot.obtain::<Arc<AppState>>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error",
+            );
             return;
         }
     };
@@ -283,7 +343,11 @@ async fn delete_secret(req: &mut Request, depot: &mut Depot, res: &mut Response)
             json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &e);
         }
         Err(e) => {
-            json_error(res, StatusCode::INTERNAL_SERVER_ERROR, &format!("task error: {e}"));
+            json_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("task error: {e}"),
+            );
         }
     }
 }
@@ -308,8 +372,7 @@ mod tests {
     fn setup_service() -> (Service, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().expect("test: create temp dir");
         let db_path = dir.path().join("test.db");
-        let db = Database::init(db_path.to_str().expect("test: path"))
-            .expect("test: init db");
+        let db = Database::init(db_path.to_str().expect("test: path")).expect("test: init db");
         let state = Arc::new(AppState {
             db: Arc::new(db),
             encryption_key: test_key(),
@@ -351,7 +414,10 @@ mod tests {
             .add_header("authorization", auth_header(), true)
             .send(&service)
             .await;
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::NOT_FOUND);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[tokio::test]
@@ -401,7 +467,10 @@ mod tests {
             .add_header("authorization", auth_header(), true)
             .send(&service)
             .await;
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::NOT_FOUND);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[tokio::test]
@@ -411,7 +480,10 @@ mod tests {
             .add_header("authorization", auth_header(), true)
             .send(&service)
             .await;
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::BAD_REQUEST
+        );
     }
 
     #[tokio::test]
@@ -421,19 +493,40 @@ mod tests {
             .send(&service)
             .await;
         // TestClient connects from localhost (not fdaa::/8), so should get 403
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::FORBIDDEN);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::FORBIDDEN
+        );
     }
 
     // --- Unit tests for validate_path and validate_prefix ---
 
     #[test]
-    fn test_valid_path_two_segments() {
-        assert!(validate_path("/ns/KEY").is_ok());
+    fn test_valid_path_four_segments() {
+        assert!(validate_path("/ns/dev/app/KEY").is_ok());
     }
 
     #[test]
-    fn test_valid_path_four_segments() {
-        assert!(validate_path("/ns/dev/app/KEY").is_ok());
+    fn test_path_three_segments_rejected() {
+        assert!(validate_path("/ns/dev/app").is_err());
+    }
+
+    #[test]
+    fn test_path_five_segments_rejected() {
+        assert!(validate_path("/ns/dev/app/KEY/EXTRA").is_err());
+    }
+
+    #[test]
+    fn test_path_error_message_mentions_format() {
+        let err = validate_path("/only/two").unwrap_err();
+        assert!(
+            err.contains("4 segments"),
+            "error should mention the expected shape, got: {err}"
+        );
+        assert!(
+            err.contains("workspace"),
+            "error should mention 'workspace', got: {err}"
+        );
     }
 
     #[test]
@@ -517,7 +610,10 @@ mod tests {
             .json(&serde_json::json!({"path": "/ns/dev/app/KEY", "value": "val"}))
             .send(&service)
             .await;
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::FORBIDDEN);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[tokio::test]
@@ -527,6 +623,9 @@ mod tests {
             .add_header("authorization", "Bearer test-read-token", true)
             .send(&service)
             .await;
-        assert_eq!(res.status_code.expect("test: status"), StatusCode::FORBIDDEN);
+        assert_eq!(
+            res.status_code.expect("test: status"),
+            StatusCode::FORBIDDEN
+        );
     }
 }
