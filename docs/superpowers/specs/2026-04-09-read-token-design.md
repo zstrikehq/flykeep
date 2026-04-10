@@ -131,21 +131,6 @@ token = "your-token-here"
 
 ---
 
-## Token Format Convention
-
-Tokens have no required format — the server matches by exact equality. By convention, prefix tokens to make their purpose obvious:
-
-```bash
-# Generate tokens
-fly secrets set \
-  FLYKEEP_ADMIN_TOKEN=admin_$(openssl rand -hex 16) \
-  FLYKEEP_READ_TOKEN=read_$(openssl rand -hex 16)
-```
-
-This makes it immediately clear which token you're looking at in config files, logs, or when sharing credentials. Not enforced by the server.
-
----
-
 ## Out of Scope
 
 - Multiple read tokens
