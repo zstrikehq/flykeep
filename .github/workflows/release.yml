@@ -39,7 +39,7 @@ jobs:
       - name: Package binary
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/flykeep dist/${{ matrix.artifact }}
+          cp flykeep-cli/target/${{ matrix.target }}/release/flykeep dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
 
       - name: Upload artifact
