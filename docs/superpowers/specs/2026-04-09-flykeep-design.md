@@ -331,6 +331,13 @@ Internal Fly machines use `.internal` address for unauthenticated read access.
 
 ---
 
+## Coding Constraints
+
+- No `unwrap()` — use proper error handling (`?`, `expect()` with context only at startup, or explicit `match`/`if let`)
+- No `unsafe` code
+
+---
+
 ## Out of Scope (MVP)
 
 - Key rotation
